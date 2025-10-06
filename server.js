@@ -8,6 +8,20 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Auth middleware
+const authenticateToken = (req, res, next) => {
+  const token = req.headers['x-render-token'] || req.headers['authorization'];
+  
+  if (!token || token !== process.env.RENDER_API_TOKEN) {
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Valid token required",
+      timestamp: new Date().toISOString(),
+    });
+  }
+  next();
+};
+
 // Request logging middleware
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -23,8 +37,8 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Chat endpoint
-app.post("/api/v1/chat", async (req, res) => {
+// Chat endpoint with auth
+app.post("/api/v1/chat", authenticateToken, async (req, res) => {
   try {
     const { messages } = req.body;
 
