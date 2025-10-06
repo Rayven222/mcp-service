@@ -47,7 +47,10 @@ app.post("/api/v1/chat", async (req, res) => {
     const userMessage = messageArray[messageArray.length - 1].content;
     console.log("Processing message with OpenAI:", userMessage);
     console.log("OpenAI key present:", !!process.env.OPENAI_API_KEY);
-    console.log("OpenAI key starts with:", process.env.OPENAI_API_KEY?.substring(0, 10));
+    console.log(
+      "OpenAI key starts with:",
+      process.env.OPENAI_API_KEY?.substring(0, 10)
+    );
 
     // Call OpenAI API
     if (process.env.OPENAI_API_KEY) {
@@ -74,7 +77,10 @@ app.post("/api/v1/chat", async (req, res) => {
 
         if (openaiResponse.ok) {
           const openaiData = await openaiResponse.json();
-          console.log("Got response from OpenAI:", openaiData.choices[0].message.content);
+          console.log(
+            "Got response from OpenAI:",
+            openaiData.choices[0].message.content
+          );
 
           // Return in the expected format
           const response = {
@@ -98,7 +104,7 @@ app.post("/api/v1/chat", async (req, res) => {
         } else {
           const errorData = await openaiResponse.json();
           console.error("OpenAI API error:", errorData);
-          
+
           return res.status(500).json({
             error: "OpenAI API error",
             message: errorData.error?.message || "Unknown error",
@@ -108,7 +114,7 @@ app.post("/api/v1/chat", async (req, res) => {
       } catch (openaiError) {
         console.error("OpenAI fetch error:", openaiError.message);
         console.error("Error details:", openaiError);
-        
+
         return res.status(500).json({
           error: "Failed to connect to OpenAI",
           message: openaiError.message,
@@ -117,7 +123,7 @@ app.post("/api/v1/chat", async (req, res) => {
       }
     } else {
       console.log("No OpenAI API key configured");
-      
+
       return res.status(503).json({
         error: "Service not configured",
         message: "OPENAI_API_KEY environment variable is not set",
