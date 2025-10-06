@@ -1,21 +1,8 @@
 const express = require("express");
 const cors = require("cors");
-const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Try to read API key from secrets file
-let secretApiKey;
-try {
-  secretApiKey = fs.readFileSync('/etc/secrets/RENDER_API_KEY', 'utf8').trim();
-  console.log("Found API key in secrets file");
-} catch (error) {
-  console.log("No API key in secrets file:", error.message);
-}
-
-// Get API key from environment or secrets
-const API_KEY = process.env.RENDER_API_KEY || secretApiKey;
 
 // Middleware
 app.use(cors());
@@ -26,23 +13,22 @@ const authenticateApiKey = (req, res, next) => {
   const apiKey = req.headers["x-api-key"] || req.headers["authorization"];
   const cleanKey = apiKey?.replace("Bearer ", "");
   
+  // Temporary direct comparison for testing
+  const EXPECTED_KEY = "rnd_1079m815tfsLvEjhR7pEUlkeLoNk";
+  
   console.log("Auth check:", {
     receivedKey: cleanKey,
-    envKeyPresent: !!process.env.RENDER_API_KEY,
-    secretKeyPresent: !!secretApiKey,
-    finalKeyPresent: !!API_KEY
+    matches: cleanKey === EXPECTED_KEY
   });
 
-  if (!cleanKey || cleanKey !== API_KEY) {
+  if (!cleanKey || cleanKey !== EXPECTED_KEY) {
     return res.status(401).json({
       error: "Unauthorized",
       message: "Valid API key required",
       timestamp: new Date().toISOString(),
       debug: {
         keyReceived: cleanKey || "none",
-        envKeyPresent: !!process.env.RENDER_API_KEY,
-        secretKeyPresent: !!secretApiKey,
-        finalKeyPresent: !!API_KEY
+        matches: cleanKey === EXPECTED_KEY
       }
     });
   }
@@ -61,12 +47,7 @@ app.get("/health", (req, res) => {
     status: "healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    env: {
-      envKeyPresent: !!process.env.RENDER_API_KEY,
-      secretKeyPresent: !!secretApiKey,
-      finalKeyPresent: !!API_KEY,
-      nodeEnv: process.env.NODE_ENV
-    }
+    message: "Using hardcoded API key for testing"
   });
 });
 
@@ -106,9 +87,5 @@ app.post("/api/v1/chat", authenticateApiKey, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log("API Key sources:", {
-    fromEnv: !!process.env.RENDER_API_KEY,
-    fromSecrets: !!secretApiKey,
-    finalKey: !!API_KEY
-  });
+  console.log("Using hardcoded API key for testing");
 });
