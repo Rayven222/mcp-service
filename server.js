@@ -10,13 +10,20 @@ app.use(express.json());
 
 // Auth middleware
 const authenticateToken = (req, res, next) => {
-  const token = req.headers['x-render-token'] || req.headers['authorization'];
+  const token = req.headers["x-render-token"] || req.headers["authorization"];
+  console.log("Received token:", token);
+  console.log("Expected token:", process.env.RENDER_API_TOKEN);
   
   if (!token || token !== process.env.RENDER_API_TOKEN) {
     return res.status(401).json({
       error: "Unauthorized",
       message: "Valid token required",
       timestamp: new Date().toISOString(),
+      debug: {
+        receivedToken: token,
+        tokenPresent: !!token,
+        envVarPresent: !!process.env.RENDER_API_TOKEN
+      }
     });
   }
   next();
@@ -34,6 +41,9 @@ app.get("/health", (req, res) => {
     status: "healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    env: {
+      tokenSet: !!process.env.RENDER_API_TOKEN
+    }
   });
 });
 
@@ -73,4 +83,8 @@ app.post("/api/v1/chat", authenticateToken, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log("Environment check:", {
+    tokenSet: !!process.env.RENDER_API_TOKEN,
+    nodeEnv: process.env.NODE_ENV
+  });
 });
