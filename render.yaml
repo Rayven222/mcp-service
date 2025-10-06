@@ -4,6 +4,17 @@ services:
     env: node
     buildCommand: npm install
     startCommand: node server.js
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: RENDER_API_KEY
+        sync: false
+    autoDeploy: true
+    numInstances: 1
+    plan: starter
+    scaling:
+      minInstances: 1
+      maxInstances: 1
+      targetMemoryPercent: 80
+      targetCPUPercent: 80
