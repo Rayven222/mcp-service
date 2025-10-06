@@ -14,35 +14,69 @@ app.use((req, res, next) => {
   next();
 });
 
-// System prompt for OpenAI to act as orchestrator
-const SYSTEM_PROMPT = `You are the Orion2 AI Project Management Assistant - an intelligent orchestrator for construction project management.
+// Backend service URLs (can be overridden with env vars)
+const BACKEND_SERVICES = {
+  compliance: process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:8610',
+  risk: process.env.RISK_SERVICE_URL || 'http://localhost:8611',
+  hse: process.env.HSE_SERVICE_URL || 'http://localhost:8612',
+  qaqc: process.env.QAQC_SERVICE_URL || 'http://localhost:8613',
+  schedule: process.env.SCHEDULE_SERVICE_URL || 'http://localhost:8614',
+  budget: process.env.BUDGET_SERVICE_URL || 'http://localhost:8615',
+};
 
-You have access to these specialized backend services:
-- Compliance Service: Construction compliance and regulatory checks
-- Risk Service: Project risk assessment and mitigation
-- HSE Service: Health, Safety, and Environment monitoring
-- QA/QC Service: Quality assurance and quality control
-- Schedule Service: Project timeline optimization
-- Budget Service: Cost analysis and forecasting
-- Document Service: Document analysis and generation
+// System prompt - OpenAI acts as intelligent orchestrator
+const SYSTEM_PROMPT = `You are Orion2 AI Assistant - an intelligent orchestrator for construction project management.
 
-Your role:
-1. Analyze user questions
-2. Determine which backend services are needed
-3. Provide expert construction project management advice
-4. Reference specific services when relevant
-5. Be professional, accurate, and construction-focused
+IMPORTANT: You can now ACTUALLY CALL real backend services. When a user asks about:
+- Compliance/regulations → Call the Compliance Service
+- Safety/health → Call the HSE Service  
+- Quality → Call the QA/QC Service
+- Timelines/schedules → Call the Schedule Service
+- Costs/budget → Call the Budget Service
+- Risks → Call the Risk Service
 
-When users ask about:
-- Compliance/regulations → Reference Compliance Service
-- Safety/health → Reference HSE Service
-- Quality → Reference QA/QC Service
-- Timelines/schedules → Reference Schedule Service
-- Costs/budget → Reference Budget Service
-- Risks → Reference Risk Service
-- Documents → Reference Document Service
+To call a service, respond with this JSON format:
+{
+  "action": "call_service",
+  "service": "compliance|risk|hse|qaqc|schedule|budget",
+  "query": "specific question for the service",
+  "response": "your analysis and context"
+}
 
-Always identify yourself as "Orion2 AI Assistant" and provide construction expertise.`;
+If the question doesn't need a backend service, respond normally with construction expertise.
+
+Always identify yourself as "Orion2 AI Assistant" and provide expert construction project management advice.`;
+
+// Function to call backend services
+async function callBackendService(serviceName, query) {
+  const serviceUrl = BACKEND_SERVICES[serviceName];
+  if (!serviceUrl) {
+    console.log(`Service ${serviceName} not configured`);
+    return null;
+  }
+
+  try {
+    console.log(`Calling ${serviceName} service at ${serviceUrl}`);
+    const response = await fetch(`${serviceUrl}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, context: { source: 'orion2-mcp' } }),
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`Got response from ${serviceName} service`);
+      return data;
+    } else {
+      console.log(`${serviceName} service returned ${response.status}`);
+      return null;
+    }
+  } catch (error) {
+    console.log(`${serviceName} service unavailable:`, error.message);
+    return null;
+  }
+}
 
 // Health check
 app.get("/health", (req, res) => {
@@ -53,25 +87,18 @@ app.get("/health", (req, res) => {
     version: "2.0.0",
     service: "mcp-hybrid-orchestrator",
     ai_enabled: !!process.env.OPENAI_API_KEY,
-    services: {
-      compliance: "available",
-      risk: "available", 
-      hse: "available",
-      qaqc: "available",
-      schedule: "available",
-      budget: "available",
-      documents: "available"
-    }
+    backend_services: Object.keys(BACKEND_SERVICES),
   });
 });
 
-// MCP chat endpoint with OpenAI as orchestrator
+// MCP chat endpoint - OpenAI orchestrates backend services
 app.post("/api/v1/chat", async (req, res) => {
   try {
-    const { messages, message, user_id, conversation_id } = req.body;
+    const { messages, message, user_id } = req.body;
 
     // Support both formats
-    const messageArray = messages || (message ? [{ role: "user", content: message }] : []);
+    const messageArray =
+      messages || (message ? [{ role: "user", content: message }] : []);
 
     if (!messageArray || messageArray.length === 0) {
       return res.status(400).json({
@@ -87,93 +114,109 @@ app.post("/api/v1/chat", async (req, res) => {
     // Prepare messages with system prompt
     const fullMessages = [
       { role: "system", content: SYSTEM_PROMPT },
-      ...messageArray
+      ...messageArray,
     ];
 
-    // Call OpenAI with orchestration context
-    if (process.env.OPENAI_API_KEY) {
-      try {
-        console.log("Calling OpenAI orchestrator...");
-        const openaiResponse = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            },
-            body: JSON.stringify({
-              model: "gpt-3.5-turbo",
-              messages: fullMessages,
-              temperature: 0.7,
-              max_tokens: 800,
-            }),
-          }
-        );
-
-        if (openaiResponse.ok) {
-          const openaiData = await openaiResponse.json();
-          const aiContent = openaiData.choices[0].message.content;
-          
-          console.log("AI Response:", aiContent.substring(0, 100) + "...");
-
-          // Analyze which services were referenced
-          const servicesReferenced = [];
-          if (aiContent.includes("Compliance") || userMessage.toLowerCase().includes("compliance")) servicesReferenced.push("compliance");
-          if (aiContent.includes("Risk") || userMessage.toLowerCase().includes("risk")) servicesReferenced.push("risk");
-          if (aiContent.includes("HSE") || userMessage.toLowerCase().includes("safety")) servicesReferenced.push("hse");
-          if (aiContent.includes("QA/QC") || userMessage.toLowerCase().includes("quality")) servicesReferenced.push("qaqc");
-          if (aiContent.includes("Schedule") || userMessage.toLowerCase().includes("schedule")) servicesReferenced.push("schedule");
-          if (aiContent.includes("Budget") || userMessage.toLowerCase().includes("budget")) servicesReferenced.push("budget");
-
-          // Return enhanced response
-          const response = {
-            id: openaiData.id || `mcp_${Date.now()}`,
-            choices: [{
-              message: {
-                role: "assistant",
-                content: aiContent,
-              },
-              finish_reason: openaiData.choices[0].finish_reason,
-            }],
-            usage: openaiData.usage,
-            metadata: {
-              services_referenced: servicesReferenced,
-              orchestrator: "openai-gpt-3.5",
-              processing_mode: "hybrid",
-              timestamp: new Date().toISOString()
-            },
-            timestamp: new Date().toISOString(),
-          };
-
-          return res.json(response);
-        } else {
-          const errorData = await openaiResponse.json();
-          console.error("OpenAI error:", errorData);
-          
-          return res.status(500).json({
-            error: "OpenAI API error",
-            message: errorData.error?.message || "Unknown error",
-            timestamp: new Date().toISOString(),
-          });
-        }
-      } catch (openaiError) {
-        console.error("OpenAI error:", openaiError.message);
-        
-        return res.status(500).json({
-          error: "AI service error",
-          message: openaiError.message,
-          timestamp: new Date().toISOString(),
-        });
-      }
+    // Call OpenAI orchestrator
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: "Service not configured",
+        message: "OPENAI_API_KEY required",
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    // Fallback if no OpenAI key
-    return res.status(503).json({
-      error: "Service not configured",
-      message: "OPENAI_API_KEY required",
+    console.log("Calling OpenAI orchestrator...");
+    const openaiResponse = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: fullMessages,
+          temperature: 0.7,
+          max_tokens: 800,
+        }),
+      }
+    );
+
+    if (!openaiResponse.ok) {
+      const errorData = await openaiResponse.json();
+      console.error("OpenAI error:", errorData);
+      return res.status(500).json({
+        error: "OpenAI API error",
+        message: errorData.error?.message || "Unknown error",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const openaiData = await openaiResponse.json();
+    let aiContent = openaiData.choices[0].message.content;
+
+    console.log("OpenAI response received");
+
+    // Check if OpenAI wants to call a backend service
+    let serviceData = null;
+    let servicesConsulted = [];
+
+    try {
+      const jsonMatch = aiContent.match(/\{[\s\S]*"action":\s*"call_service"[\s\S]*\}/);
+      if (jsonMatch) {
+        const serviceRequest = JSON.parse(jsonMatch[0]);
+        if (serviceRequest.action === "call_service" && serviceRequest.service) {
+          console.log(`AI requested ${serviceRequest.service} service`);
+          serviceData = await callBackendService(serviceRequest.service, serviceRequest.query);
+          servicesConsulted.push(serviceRequest.service);
+          
+          // If we got data, update the response
+          if (serviceData) {
+            aiContent = `${serviceRequest.response}\n\nBased on ${serviceRequest.service} analysis:\n${JSON.stringify(serviceData, null, 2)}`;
+          }
+        }
+      }
+    } catch (parseError) {
+      console.log("No service call in response");
+    }
+
+    // Analyze which services were mentioned (even if not called)
+    const servicesReferenced = [];
+    const lowerContent = aiContent.toLowerCase() + userMessage.toLowerCase();
+    if (lowerContent.includes("compliance")) servicesReferenced.push("compliance");
+    if (lowerContent.includes("risk")) servicesReferenced.push("risk");
+    if (lowerContent.includes("safety") || lowerContent.includes("hse")) servicesReferenced.push("hse");
+    if (lowerContent.includes("quality") || lowerContent.includes("qaqc")) servicesReferenced.push("qaqc");
+    if (lowerContent.includes("schedule") || lowerContent.includes("timeline")) servicesReferenced.push("schedule");
+    if (lowerContent.includes("budget") || lowerContent.includes("cost")) servicesReferenced.push("budget");
+
+    // Return enhanced response
+    const response = {
+      id: openaiData.id || `mcp_${Date.now()}`,
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: aiContent,
+          },
+          finish_reason: openaiData.choices[0].finish_reason,
+        },
+      ],
+      usage: openaiData.usage,
+      metadata: {
+        services_referenced: servicesReferenced,
+        services_consulted: servicesConsulted,
+        orchestrator: "openai-gpt-3.5-turbo",
+        processing_mode: "hybrid-intelligent",
+        backend_data_included: !!serviceData,
+        timestamp: new Date().toISOString(),
+      },
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    return res.json(response);
   } catch (error) {
     console.error("Chat error:", error);
     res.status(500).json({
@@ -186,6 +229,6 @@ app.post("/api/v1/chat", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Orion2 Hybrid MCP Orchestrator running on port ${PORT}`);
-  console.log("Mode: OpenAI as intelligent orchestrator");
-  console.log("Services: Compliance, Risk, HSE, QA/QC, Schedule, Budget, Documents");
+  console.log("Mode: OpenAI orchestrates backend services");
+  console.log("Backend services configured:", Object.keys(BACKEND_SERVICES).join(", "));
 });
