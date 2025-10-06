@@ -8,22 +8,19 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Auth middleware
-const authenticateToken = (req, res, next) => {
-  const token = req.headers["x-render-token"] || req.headers["authorization"];
-  console.log("Received token:", token);
-  console.log("Expected token:", process.env.RENDER_API_TOKEN);
+// API Key middleware
+const authenticateApiKey = (req, res, next) => {
+  // Get API key from header
+  const apiKey = req.headers["x-api-key"] || req.headers["authorization"];
   
-  if (!token || token !== process.env.RENDER_API_TOKEN) {
+  // Remove 'Bearer ' prefix if present
+  const cleanKey = apiKey?.replace("Bearer ", "");
+
+  if (!cleanKey || cleanKey !== process.env.RENDER_API_KEY) {
     return res.status(401).json({
       error: "Unauthorized",
-      message: "Valid token required",
-      timestamp: new Date().toISOString(),
-      debug: {
-        receivedToken: token,
-        tokenPresent: !!token,
-        envVarPresent: !!process.env.RENDER_API_TOKEN
-      }
+      message: "Valid API key required",
+      timestamp: new Date().toISOString()
     });
   }
   next();
@@ -42,13 +39,13 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     env: {
-      tokenSet: !!process.env.RENDER_API_TOKEN
+      apiKeySet: !!process.env.RENDER_API_KEY
     }
   });
 });
 
 // Chat endpoint with auth
-app.post("/api/v1/chat", authenticateToken, async (req, res) => {
+app.post("/api/v1/chat", authenticateApiKey, async (req, res) => {
   try {
     const { messages } = req.body;
 
@@ -84,7 +81,7 @@ app.post("/api/v1/chat", authenticateToken, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log("Environment check:", {
-    tokenSet: !!process.env.RENDER_API_TOKEN,
+    apiKeySet: !!process.env.RENDER_API_KEY,
     nodeEnv: process.env.NODE_ENV
   });
 });
