@@ -4,23 +4,23 @@ const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Print all environment variables at startup
+console.log("All environment variables:", process.env);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // API Key middleware
 const authenticateApiKey = (req, res, next) => {
-  // Get API key from header
   const apiKey = req.headers["x-api-key"] || req.headers["authorization"];
-
-  // Remove 'Bearer ' prefix if present
   const cleanKey = apiKey?.replace("Bearer ", "");
-
-  console.log("Auth Debug:", {
-    receivedKey: cleanKey,
-    expectedKey: process.env.RENDER_API_KEY,
-    headers: req.headers,
-    envVars: process.env
+  
+  // Log the actual comparison
+  console.log("Auth comparison:", {
+    received: cleanKey,
+    expected: process.env.RENDER_API_KEY,
+    match: cleanKey === process.env.RENDER_API_KEY
   });
 
   if (!cleanKey || cleanKey !== process.env.RENDER_API_KEY) {
@@ -29,9 +29,9 @@ const authenticateApiKey = (req, res, next) => {
       message: "Valid API key required",
       timestamp: new Date().toISOString(),
       debug: {
-        keyReceived: !!cleanKey,
-        envKeySet: !!process.env.RENDER_API_KEY,
-        match: cleanKey === process.env.RENDER_API_KEY
+        keyReceived: cleanKey || "none",
+        envKeyPresent: !!process.env.RENDER_API_KEY,
+        envKeyValue: process.env.RENDER_API_KEY || "not set"
       }
     });
   }
@@ -51,10 +51,10 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     env: {
-      apiKeySet: !!process.env.RENDER_API_KEY,
-      apiKeyValue: process.env.RENDER_API_KEY?.substring(0, 5) + "...",
-      allEnvVars: Object.keys(process.env)
-    },
+      apiKey: process.env.RENDER_API_KEY || "not set",
+      nodeEnv: process.env.NODE_ENV,
+      port: process.env.PORT
+    }
   });
 });
 
@@ -94,9 +94,5 @@ app.post("/api/v1/chat", authenticateApiKey, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log("Environment check:", {
-    apiKeySet: !!process.env.RENDER_API_KEY,
-    nodeEnv: process.env.NODE_ENV,
-    allEnvVars: Object.keys(process.env)
-  });
+  console.log("API Key present:", !!process.env.RENDER_API_KEY);
 });
