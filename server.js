@@ -8,50 +8,38 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// API Key middleware
-const authenticateApiKey = (req, res, next) => {
-  // Get API key from header (support both formats)
-  const authHeader = req.headers["authorization"] || "";
-  const apiKey = req.headers["x-api-key"] || (authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader);
-
-  // Validate API key
-  if (!apiKey || apiKey !== process.env.RENDER_API_KEY) {
-    return res.status(401).json({
-      error: "Unauthorized",
-      message: "Valid API key required",
-      timestamp: new Date().toISOString()
-    });
-  }
-  next();
-};
-
 // Request logging middleware
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${req.headers["x-request-id"] || "no-request-id"}`);
+  console.log(
+    `[${new Date().toISOString()}] ${req.method} ${req.path}`
+  );
   next();
 });
 
-// Health check endpoint (no auth required)
+// Health check endpoint
 app.get("/health", (req, res) => {
   res.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     version: "1.0.0",
-    service: "mcp-node"
+    service: "mcp-node",
   });
 });
 
-// MCP chat endpoint
-app.post("/api/v1/chat", authenticateApiKey, async (req, res) => {
+// MCP chat endpoint - NO AUTH FOR NOW
+app.post("/api/v1/chat", async (req, res) => {
   try {
-    const { messages } = req.body;
+    const { messages, message, user_id, conversation_id } = req.body;
 
-    if (!messages || !Array.isArray(messages)) {
+    // Support both formats: messages array or single message
+    const messageArray = messages || (message ? [{ role: "user", content: message }] : []);
+
+    if (!messageArray || messageArray.length === 0) {
       return res.status(400).json({
         error: "Invalid request",
-        message: "Messages array is required",
-        timestamp: new Date().toISOString()
+        message: "Messages array or message field is required",
+        timestamp: new Date().toISOString(),
       });
     }
 
@@ -62,48 +50,32 @@ app.post("/api/v1/chat", authenticateApiKey, async (req, res) => {
         {
           message: {
             role: "assistant",
-            content: "This is a test response from the MCP server.",
+            content: "Hello! I'm your MCP AI assistant. I'm connected and working!",
           },
-          finish_reason: "stop"
-        }
+          finish_reason: "stop",
+        },
       ],
       usage: {
-        prompt_tokens: messages.reduce((acc, m) => acc + m.content.length, 0),
-        completion_tokens: 12,
-        total_tokens: messages.reduce((acc, m) => acc + m.content.length, 0) + 12
+        prompt_tokens: messageArray.reduce((acc, m) => acc + (m.content?.length || 0), 0),
+        completion_tokens: 15,
+        total_tokens: messageArray.reduce((acc, m) => acc + (m.content?.length || 0), 0) + 15,
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
 
+    console.log('Sending response:', JSON.stringify(response, null, 2));
     res.json(response);
   } catch (error) {
     console.error("Chat error:", error);
     res.status(500).json({
       error: "Internal server error",
       message: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
 
-// Metrics endpoint (for monitoring)
-app.get("/metrics", authenticateApiKey, (req, res) => {
-  res.json({
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    requests: {
-      total: 0,
-      success: 0,
-      error: 0
-    },
-    latency: {
-      p50: 0,
-      p95: 0,
-      p99: 0
-    }
-  });
-});
-
 app.listen(PORT, () => {
   console.log(`MCP Server running on port ${PORT}`);
+  console.log('Auth disabled for testing');
 });
