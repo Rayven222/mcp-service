@@ -1,11 +1,21 @@
 const express = require("express");
 const cors = require("cors");
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Print all environment variables at startup
-console.log("All environment variables:", process.env);
+// Try to read API key from secrets file
+let secretApiKey;
+try {
+  secretApiKey = fs.readFileSync('/etc/secrets/RENDER_API_KEY', 'utf8').trim();
+  console.log("Found API key in secrets file");
+} catch (error) {
+  console.log("No API key in secrets file:", error.message);
+}
+
+// Get API key from environment or secrets
+const API_KEY = process.env.RENDER_API_KEY || secretApiKey;
 
 // Middleware
 app.use(cors());
@@ -16,14 +26,14 @@ const authenticateApiKey = (req, res, next) => {
   const apiKey = req.headers["x-api-key"] || req.headers["authorization"];
   const cleanKey = apiKey?.replace("Bearer ", "");
   
-  // Log the actual comparison
-  console.log("Auth comparison:", {
-    received: cleanKey,
-    expected: process.env.RENDER_API_KEY,
-    match: cleanKey === process.env.RENDER_API_KEY
+  console.log("Auth check:", {
+    receivedKey: cleanKey,
+    envKeyPresent: !!process.env.RENDER_API_KEY,
+    secretKeyPresent: !!secretApiKey,
+    finalKeyPresent: !!API_KEY
   });
 
-  if (!cleanKey || cleanKey !== process.env.RENDER_API_KEY) {
+  if (!cleanKey || cleanKey !== API_KEY) {
     return res.status(401).json({
       error: "Unauthorized",
       message: "Valid API key required",
@@ -31,7 +41,8 @@ const authenticateApiKey = (req, res, next) => {
       debug: {
         keyReceived: cleanKey || "none",
         envKeyPresent: !!process.env.RENDER_API_KEY,
-        envKeyValue: process.env.RENDER_API_KEY || "not set"
+        secretKeyPresent: !!secretApiKey,
+        finalKeyPresent: !!API_KEY
       }
     });
   }
@@ -51,9 +62,10 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     env: {
-      apiKey: process.env.RENDER_API_KEY || "not set",
-      nodeEnv: process.env.NODE_ENV,
-      port: process.env.PORT
+      envKeyPresent: !!process.env.RENDER_API_KEY,
+      secretKeyPresent: !!secretApiKey,
+      finalKeyPresent: !!API_KEY,
+      nodeEnv: process.env.NODE_ENV
     }
   });
 });
@@ -94,5 +106,9 @@ app.post("/api/v1/chat", authenticateApiKey, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log("API Key present:", !!process.env.RENDER_API_KEY);
+  console.log("API Key sources:", {
+    fromEnv: !!process.env.RENDER_API_KEY,
+    fromSecrets: !!secretApiKey,
+    finalKey: !!API_KEY
+  });
 });
