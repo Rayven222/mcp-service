@@ -12,15 +12,27 @@ app.use(express.json());
 const authenticateApiKey = (req, res, next) => {
   // Get API key from header
   const apiKey = req.headers["x-api-key"] || req.headers["authorization"];
-  
+
   // Remove 'Bearer ' prefix if present
   const cleanKey = apiKey?.replace("Bearer ", "");
+
+  console.log("Auth Debug:", {
+    receivedKey: cleanKey,
+    expectedKey: process.env.RENDER_API_KEY,
+    headers: req.headers,
+    envVars: process.env
+  });
 
   if (!cleanKey || cleanKey !== process.env.RENDER_API_KEY) {
     return res.status(401).json({
       error: "Unauthorized",
       message: "Valid API key required",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      debug: {
+        keyReceived: !!cleanKey,
+        envKeySet: !!process.env.RENDER_API_KEY,
+        match: cleanKey === process.env.RENDER_API_KEY
+      }
     });
   }
   next();
@@ -39,8 +51,10 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     env: {
-      apiKeySet: !!process.env.RENDER_API_KEY
-    }
+      apiKeySet: !!process.env.RENDER_API_KEY,
+      apiKeyValue: process.env.RENDER_API_KEY?.substring(0, 5) + "...",
+      allEnvVars: Object.keys(process.env)
+    },
   });
 });
 
@@ -82,6 +96,7 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log("Environment check:", {
     apiKeySet: !!process.env.RENDER_API_KEY,
-    nodeEnv: process.env.NODE_ENV
+    nodeEnv: process.env.NODE_ENV,
+    allEnvVars: Object.keys(process.env)
   });
 });
