@@ -22,10 +22,11 @@ app.get("/health", (req, res) => {
     uptime: process.uptime(),
     version: "1.0.0",
     service: "mcp-node",
+    ai_enabled: !!process.env.OPENAI_API_KEY,
   });
 });
 
-// MCP chat endpoint with AI integration
+// MCP chat endpoint with OpenAI integration
 app.post("/api/v1/chat", async (req, res) => {
   try {
     const { messages, message, user_id, conversation_id } = req.body;
@@ -41,36 +42,10 @@ app.post("/api/v1/chat", async (req, res) => {
       });
     }
 
-    console.log("Processing message:", JSON.stringify(messageArray, null, 2));
+    console.log("Processing message with OpenAI:", messageArray[messageArray.length - 1].content);
 
-    // Try to connect to local MCP orchestrator first
-    const MCP_URL = process.env.MCP_ORCHESTRATOR_URL || 'http://localhost:8600';
-    let aiResponse = null;
-
-    try {
-      console.log("Attempting to connect to MCP orchestrator:", MCP_URL);
-      const mcpResponse = await fetch(`${MCP_URL}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: messageArray,
-          user_id: user_id,
-          conversation_id: conversation_id
-        }),
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      });
-
-      if (mcpResponse.ok) {
-        aiResponse = await mcpResponse.json();
-        console.log("Got response from MCP orchestrator");
-      }
-    } catch (mcpError) {
-      console.log("MCP orchestrator unavailable, trying OpenAI:", mcpError.message);
-    }
-
-    // Fallback to OpenAI if MCP is unavailable
-    if (!aiResponse && process.env.OPENAI_API_KEY) {
-      console.log("Using OpenAI fallback");
+    // Call OpenAI API
+    if (process.env.OPENAI_API_KEY) {
       try {
         const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -88,58 +63,47 @@ app.post("/api/v1/chat", async (req, res) => {
 
         if (openaiResponse.ok) {
           const openaiData = await openaiResponse.json();
-          aiResponse = {
-            content: openaiData.choices[0].message.content,
-            confidence: 1.0,
-            agents_consulted: ['openai-gpt-3.5'],
-            metadata: {
-              processing_time: 0,
-              persona: 'professional',
-              timestamp: new Date().toISOString()
-            }
-          };
           console.log("Got response from OpenAI");
+          
+          // Return in the expected format
+          const response = {
+            id: openaiData.id || `mcp_${Date.now()}`,
+            choices: openaiData.choices.map(choice => ({
+              message: {
+                role: choice.message.role,
+                content: choice.message.content,
+              },
+              finish_reason: choice.finish_reason,
+            })),
+            usage: openaiData.usage || {
+              prompt_tokens: 0,
+              completion_tokens: 0,
+              total_tokens: 0,
+            },
+            timestamp: new Date().toISOString(),
+          };
+
+          return res.json(response);
+        } else {
+          const errorData = await openaiResponse.json();
+          console.error("OpenAI error:", errorData);
         }
       } catch (openaiError) {
-        console.error("OpenAI error:", openaiError.message);
+        console.error("OpenAI fetch error:", openaiError.message);
       }
+    } else {
+      console.log("No OpenAI API key configured");
     }
 
-    // If we got a response from either service, format it
-    if (aiResponse) {
-      const response = {
-        id: `mcp_${Date.now()}`,
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: aiResponse.content || aiResponse.choices?.[0]?.message?.content || "I received your message.",
-            },
-            finish_reason: "stop",
-          },
-        ],
-        usage: {
-          prompt_tokens: messageArray.reduce((acc, m) => acc + (m.content?.length || 0), 0),
-          completion_tokens: aiResponse.content?.length || 50,
-          total_tokens: messageArray.reduce((acc, m) => acc + (m.content?.length || 0), 0) + (aiResponse.content?.length || 50),
-        },
-        metadata: aiResponse.metadata || {},
-        timestamp: new Date().toISOString(),
-      };
-
-      console.log("Sending response");
-      return res.json(response);
-    }
-
-    // Final fallback - generic response
-    console.log("All AI services unavailable, using fallback");
+    // Fallback response if OpenAI fails or is not configured
+    console.log("Using fallback response");
     const fallbackResponse = {
       id: `mcp_${Date.now()}`,
       choices: [
         {
           message: {
             role: "assistant",
-            content: "I'm currently unable to connect to the AI services. Please try again in a moment.",
+            content: "I'm currently unable to connect to the AI service. Please configure the OPENAI_API_KEY environment variable in Render dashboard for full AI capabilities.",
           },
           finish_reason: "stop",
         },
@@ -165,6 +129,5 @@ app.post("/api/v1/chat", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`MCP Server running on port ${PORT}`);
-  console.log("MCP Orchestrator URL:", process.env.MCP_ORCHESTRATOR_URL || 'http://localhost:8600');
   console.log("OpenAI enabled:", !!process.env.OPENAI_API_KEY);
 });
